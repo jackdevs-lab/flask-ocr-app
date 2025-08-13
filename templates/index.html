@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document OCR</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Document OCR</h1>
+        <p class="subtitle">Upload images or PDFs to extract text</p>
+        
+        <div class="upload-area" id="uploadArea">
+            <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png" multiple>
+            <label for="fileInput" class="upload-label">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <span>Choose files or drag them here</span>
+            </label>
+            <div id="fileList" class="file-list"></div>
+        </div>
+        
+        <div class="options">
+            <div class="form-group">
+                <label for="formatSelect">Output Format:</label>
+                <select id="formatSelect">
+                    <option value="txt">Plain Text (.txt)</option>
+                    <option value="docx">Word Document (.docx)</option>
+                    <option value="pdf">PDF (.pdf)</option>
+                </select>
+            </div>
+            
+            <button id="processBtn" class="btn" disabled>Extract Text</button>
+            <button id="downloadBtn" class="btn secondary" disabled>Download</button>
+        </div>
+        
+        <div id="status" class="status"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileInput = document.getElementById('fileInput');
+            const uploadArea = document.getElementById('uploadArea');
+            const fileList = document.getElementById('fileList');
+            const formatSelect = document.getElementById('formatSelect');
+            const processBtn = document.getElementById('processBtn');
+            const downloadBtn = document.getElementById('downloadBtn');
+            const statusDiv = document.getElementById('status');
+            
+            let currentFileData = null;
+            
+            // Handle drag and drop
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                if (e.dataTransfer.files.length > 0) {
+                    fileInput.files = e.dataTransfer.files;
+                    updateFileList();
+                }
+            });
+            
+            // Handle file selection
+            fileInput.addEventListener('change', updateFileList);
+            
+            function updateFileList() {
+                fileList.innerHTML = '';
+                if (fileInput.files.length > 0) {
+                    for (let i = 0; i < fileInput.files.length; i++) {
+                        const file = fileInput.files[i];
+                        const fileItem = document.createElement('div');
+                        fileItem.className = 'file-item';
+                        fileItem.innerHTML = `
+                            <span class="file-name">${file.name}</span>
+                            <span class="file-size">(${(file.size / 1024).toFixed(1)} KB)</span>
+                        `;
+                        fileList.appendChild(fileItem);
+                    }
+                    processBtn.disabled = false;
+                } else {
+                    processBtn.disabled = true;
+                }
+                downloadBtn.disabled = true;
+                currentFileData = null;
+            }
+            
+            // Process button click
+            processBtn.addEventListener('click', async function() {
+                if (fileInput.files.length === 0) return;
+                
+                processBtn.disabled = true;
+                statusDiv.textContent = 'Processing...';
+                statusDiv.className = 'status processing';
+                
+                try {
+                    const formData = new FormData();
+                    for (let i = 0; i < fileInput.files.length; i++) {
+                        formData.append('file', fileInput.files[i]);
+                    }
+                    formData.append('format', formatSelect.value);
+                    
+                    const response = await fetch('/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        currentFileData = data;
+                        downloadBtn.disabled = false;
+                        statusDiv.textContent = 'Processing complete!';
+                        statusDiv.className = 'status success';
+                        
+                        // Auto-download if user prefers
+                        downloadFile();
+                    } else {
+                        throw new Error(data.error || 'Unknown error occurred');
+                    }
+                } catch (error) {
+                    statusDiv.textContent = `Error: ${error.message}`;
+                    statusDiv.className = 'status error';
+                } finally {
+                    processBtn.disabled = false;
+                }
+            });
+            
+            // Download button click
+            downloadBtn.addEventListener('click', downloadFile);
+            
+            function downloadFile() {
+                if (!currentFileData) return;
+                
+                fetch('/download', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(currentFileData)
+                })
+                .then(response => response.blob())
+                .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = currentFileData.filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    a.remove();
+                })
+                .catch(error => {
+                    statusDiv.textContent = `Download error: ${error.message}`;
+                    statusDiv.className = 'status error';
+                });
+            }
+        });
+    </script>
+</body>
+</html>

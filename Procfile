@@ -1,1 +1,1 @@
-app.run(debug=True)
+web: gunicorn app:app

@@ -13,23 +13,36 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB limit
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'pdf'}
-
+pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
 # Ensure upload directory exists
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
+def preprocess_image(image):
+    max_size = (1000, 1000)  # Limit to 1000x1000 pixels
+    image.thumbnail(max_size, Image.Resampling.LANCZOS)
+    return image
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 def extract_text_from_image(image):
-    return pytesseract.image_to_string(image)
-
+    try:
+        image = preprocess_image(image)
+        return pytesseract.image_to_string(image)
+    except Exception as e:
+        app.logger.error(f"Error in extract_text_from_image: {str(e)}")
+        raise
 def extract_text_from_pdf(pdf_bytes):
-    images = convert_from_bytes(pdf_bytes)
-    text = ""
-    for image in images:
-        text += extract_text_from_image(image) + "\n"
-    return text
+    try:
+        images = convert_from_bytes(pdf_bytes)
+        text = ""
+        for image in images:
+            image = preprocess_image(image)
+            text += extract_text_from_image(image) + "\n"
+        return text
+    except Exception as e:
+        app.logger.error(f"Error in extract_text_from_pdf: {str(e)}")
+        raise
 
 def create_docx(text):
     doc = Document()
@@ -77,48 +90,51 @@ def upload_file():
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
     
-    file = request.files['file']
-    if file.filename == '':
+    files = request.files.getlist('file')  # Get all files
+    if not files or all(file.filename == '' for file in files):
         return jsonify({'error': 'No selected file'}), 400
     
-    if file and allowed_file(file.filename):
-        output_format = request.form.get('format', 'txt')
-        
-        try:
-            # Process the file based on its type
-            if file.filename.lower().endswith('.pdf'):
-                pdf_bytes = file.read()
-                extracted_text = extract_text_from_pdf(pdf_bytes)
-            else:
-                image = Image.open(file.stream)
-                extracted_text = extract_text_from_image(image)
-            
-            # Generate output in requested format
-            if output_format == 'docx':
-                output = create_docx(extracted_text)
-                mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                extension = 'docx'
-            elif output_format == 'pdf':
-                output = create_pdf(extracted_text)
-                mimetype = 'application/pdf'
-                extension = 'pdf'
-            else:  # txt
-                output = io.BytesIO(extracted_text.encode('utf-8'))
-                mimetype = 'text/plain'
-                extension = 'txt'
-            
-            # Return the file data and metadata
-            return jsonify({
-                'filename': f'extracted_text.{extension}',
-                'mimetype': mimetype,
-                'file_data': output.getvalue().hex()
-            })
-            
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
+    output_format = request.form.get('format', 'txt')
+    results = []
     
-    return jsonify({'error': 'Invalid file type'}), 400
-
+    try:
+        for file in files:
+            if file and allowed_file(file.filename):
+                # Process the file based on its type
+                if file.filename.lower().endswith('.pdf'):
+                    pdf_bytes = file.read()
+                    extracted_text = extract_text_from_pdf(pdf_bytes)
+                else:
+                    image = Image.open(file.stream)
+                    extracted_text = extract_text_from_image(image)
+                
+                # Generate output in requested format
+                if output_format == 'docx':
+                    output = create_docx(extracted_text)
+                    mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                    extension = 'docx'
+                elif output_format == 'pdf':
+                    output = create_pdf(extracted_text)
+                    mimetype = 'application/pdf'
+                    extension = 'pdf'
+                else:  # txt
+                    output = io.BytesIO(extracted_text.encode('utf-8'))
+                    mimetype = 'text/plain'
+                    extension = 'txt'
+                
+                results.append({
+                    'filename': f'extracted_{secure_filename(file.filename)}.{extension}',
+                    'mimetype': mimetype,
+                    'file_data': output.getvalue().hex()
+                })
+            else:
+                results.append({'filename': file.filename, 'error': 'Invalid file type'})
+        
+        return jsonify(results)
+    
+    except Exception as e:
+        app.logger.error(f"Error processing files: {str(e)}")
+        return jsonify({'error': f'Failed to process files: {str(e)}'}), 500
 @app.route('/download', methods=['POST'])
 def download_file():
     data = request.json

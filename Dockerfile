@@ -1,4 +1,3 @@
-# Use Python base image
 FROM python:3.11-slim
 
 # Install system dependencies (Tesseract + poppler for pdf2image)
@@ -20,5 +19,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Expose port
 EXPOSE 5000
 
-# Start the app
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:5000"]
+# Start the app with increased timeout and single worker
+CMD ["gunicorn", "--timeout", "120", "--workers", "1", "--bind", "0.0.0.0:5000", "app:app"]

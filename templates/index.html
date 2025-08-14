@@ -97,75 +97,82 @@
             }
             
             // Process button click
-            processBtn.addEventListener('click', async function() {
-                if (fileInput.files.length === 0) return;
-                
-                processBtn.disabled = true;
-                statusDiv.textContent = 'Processing...';
-                statusDiv.className = 'status processing';
-                
-                try {
-                    const formData = new FormData();
-                    for (let i = 0; i < fileInput.files.length; i++) {
-                        formData.append('file', fileInput.files[i]);
-                    }
-                    formData.append('format', formatSelect.value);
-                    
-                    const response = await fetch('/upload', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (response.ok) {
-                        currentFileData = data;
-                        downloadBtn.disabled = false;
-                        statusDiv.textContent = 'Processing complete!';
-                        statusDiv.className = 'status success';
-                        
-                        // Auto-download if user prefers
-                        downloadFile();
-                    } else {
-                        throw new Error(data.error || 'Unknown error occurred');
-                    }
-                } catch (error) {
-                    statusDiv.textContent = `Error: ${error.message}`;
-                    statusDiv.className = 'status error';
-                } finally {
-                    processBtn.disabled = false;
-                }
-            });
+           processBtn.addEventListener('click', async function() {
+    if (fileInput.files.length === 0) return;
+    
+    processBtn.disabled = true;
+    statusDiv.textContent = 'Processing...';
+    statusDiv.className = 'status processing';
+    
+    try {
+        const formData = new FormData();
+        for (let i = 0; i < fileInput.files.length; i++) {
+            formData.append('file', fileInput.files[i]);
+        }
+        formData.append('format', formatSelect.value);
+        
+        const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            currentFileData = data;  // Array of results
+            downloadBtn.disabled = false;
+            statusDiv.textContent = 'Processing complete!';
+            statusDiv.className = 'status success';
+            
+            // Auto-download all files
+            downloadFile();
+        } else {
+            throw new Error(data.error || 'Unknown error occurred');
+        }
+    } catch (error) {
+        statusDiv.textContent = `Error: ${error.message}`;
+        statusDiv.className = 'status error';
+    } finally {
+        processBtn.disabled = false;
+    }
+});
             
             // Download button click
             downloadBtn.addEventListener('click', downloadFile);
             
             function downloadFile() {
-                if (!currentFileData) return;
-                
-                fetch('/download', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(currentFileData)
-                })
-                .then(response => response.blob())
-                .then(blob => {
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = currentFileData.filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    a.remove();
-                })
-                .catch(error => {
-                    statusDiv.textContent = `Download error: ${error.message}`;
-                    statusDiv.className = 'status error';
-                });
-            }
+    if (!currentFileData) return;
+    
+    currentFileData.forEach(fileData => {
+        if (!fileData.error) {
+            fetch('/download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(fileData)
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileData.filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                a.remove();
+            })
+            .catch(error => {
+                statusDiv.textContent = `Download error: ${error.message}`;
+                statusDiv.className = 'status error';
+            });
+        } else {
+            statusDiv.textContent = `Error for ${fileData.filename}: ${fileData.error}`;
+            statusDiv.className = 'status error';
+        }
+    });
+}
         });
     </script>
 </body>
